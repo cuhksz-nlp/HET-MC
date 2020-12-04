@@ -6,7 +6,7 @@ You can e-mail Yuanhe Tian at `yhtian@uw.edu` or Guimin Chen at `chenguimin@chua
 
 ## Citation
 
-If you use or extend our work, please cite our paper at ACL2020.
+If you use or extend our work, please cite our paper at COLING 2020.
 
 ```
 @inproceedings{song-etal-2020-summarizing,
