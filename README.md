@@ -28,9 +28,7 @@ Our code works with the following environment.
 
 ## Dataset
 
-In progressing.
-
-To obtain the data, you can go to `data_preprocessing` directory and run `getdata.sh`. This script will download and process the official data (coming soon).
+To obtain the data, you can go to [`data_preprocessing`](./data_preprocessing) directory for details.
 
 ## Downloading BERT, ZEN and HET-MC
 
