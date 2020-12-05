@@ -13,7 +13,7 @@ If the code crash in the middle, you just need to run `./crawl_data.sh` again. T
 Usage:
 * `--chunk_size`: the number of dialogs to store in each file.
 
-**Note**: there might be problems in the online sources (e.g., the urls/dialog/summaries do not exist). If problems happen, the code will save the problem to `data/crawl_data/warnings` and continue downloading the rest data. You can submit an issue with the warning file so that we can try to address the problems.
+**Note**: we tested our script recently and found that there are problems in the online sources (e.g., the urls/dialog/summaries do not exist). Therefore, it is possible that you cannot obtain the full resource. If the problem occurs, the code will save the problem to `data/crawl_data/warnings` and continue downloading the rest data. You can submit an issue with the warning file so that we can try to address the problems.
 
 ## Merge the data with our silver standard.
 
