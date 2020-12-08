@@ -17,4 +17,6 @@ Usage:
 
 ## Merge the data with our silver standard.
 
-In procressing ...
+In processing ...
+
+You can find the train/test split under [`data/splits`](data/splits). You can find our annotations of each utterance ("1" stands for problem description; "2" stands for doctor suggestions; "0" stands for other utterances) under [`data/annotations`](data/annotations).
