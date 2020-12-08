@@ -4,6 +4,19 @@ import json
 from lxml import html
 import argparse
 import datetime
+import time
+import random
+
+SUMMARY_RULE = [
+    '//main[@class="content"]/section/div[@class="qa-arrangement"]/div[@class="qa-arrangement-body"]/div[@class="qa-title"]',
+
+]
+
+
+CONTENT_RULE = [
+    '//main[@class="content"]/section/section[@class="problem-detail-wrap"]/section[@class="problem-detail-inner"]/div[@class="block-line"]/div[@class="block-right"]',
+
+]
 
 FULL_URL_FILE = 'data/urls/url_list.txt'
 CRAWL_DATA_DIR = 'data/crawl_data'
@@ -52,7 +65,7 @@ def name_filter(string):
         return '患者'
 
 
-def crawl_dialog(dialog):
+def crawl_dialog(dialog, sleep_time):
     dialog_id = dialog['id']
     dialog_url = dialog['url']
     exception_report = []
@@ -60,66 +73,68 @@ def crawl_dialog(dialog):
     dialog_dict = {'id': dialog_id, 'url': dialog_url, 'content': [], 'summary': {'description': '', 'suggestion': ''}}
     html_dict = {'id': dialog_id, 'url': dialog_url, 'html': ''}
 
-    try:
+    response = requests.get(dialog_url)
+
+    step_threshold = 5
+    try_times = 0
+    while response.status_code == 503 and try_times < 20:
+        time.sleep(max(sleep_time + 4 * (random.random() - 0.5), 2))
         response = requests.get(dialog_url)
-    except Exception:
-        warning_info = '%s URL not found!' % dialog_id
-        exception_report.append(warning_info)
-        print(warning_info)
-    else:
+        try_times += 1
+        sleep_time += int(try_times/step_threshold)
+
+    if response.status_code == 200:
         response_text = response.text
         html_dict['html'] = response_text
         html_format = html.fromstring(response_text)
 
         # get the summary
-        summary_info = html_format.xpath('//main[@class="content"]'
-                                         '/section/div[@class="qa-arrangement"]'
-                                         '/div[@class="qa-arrangement-body"]'
-                                         '/div[@class="qa-title"]')
-        if len(summary_info) > 0:
-            description = summary_info[0].text
-            if description.startswith('问题描述：'):
-                description = description[5:]
+        summary_info = []
+        for sum_rule in SUMMARY_RULE:
+            summary_info = html_format.xpath(sum_rule)
+            if len(summary_info) > 0:
+                description = summary_info[0].text
+                if description.startswith('问题描述：'):
+                    description = description[5:]
 
-            dialog_dict['summary']['description'] = strip_str(description)
+                dialog_dict['summary']['description'] = strip_str(description)
 
-            suggestion = summary_info[1].text
-            if suggestion.startswith('分析及建议：'):
-                suggestion = suggestion[6:]
-            dialog_dict['summary']['suggestion'] = strip_str(suggestion)
-        else:
-            warning_info = '%s summary not found!' % dialog_id
+                suggestion = summary_info[1].text
+                if suggestion.startswith('分析及建议：'):
+                    suggestion = suggestion[6:]
+                dialog_dict['summary']['suggestion'] = strip_str(suggestion)
+                break
+        if len(summary_info) == 0:
+            warning_info = '%s %s summary not found!' % (dialog_id, dialog_url)
             exception_report.append(warning_info)
             print(warning_info)
 
         # get dialog
-        speaker_info = html_format.xpath('//main[@class="content"]'
-                                         '/section/section[@class="problem-detail-wrap"]'
-                                         '/section[@class="problem-detail-inner"]'
-                                         '/div[@class="block-line"]'
-                                         '/div[@class="block-right"]'
-                                         '/h6')
-        utterances_info = html_format.xpath('//main[@class="content"]'
-                                            '/section/section[@class="problem-detail-wrap"]'
-                                            '/section[@class="problem-detail-inner"]'
-                                            '/div[@class="block-line"]'
-                                            '/div[@class="block-right"]'
-                                            '/p')
+        speaker_info = []
+        for context_rule in CONTENT_RULE:
+            speaker_rule = context_rule + '/h6'
+            utterance_rule = context_rule + '/p'
+            speaker_info = html_format.xpath(speaker_rule)
+            utterances_info = html_format.xpath(utterance_rule)
+            if len(speaker_info) > 0:
+                speaker_list = [name_filter(sp.text.strip()) for sp in speaker_info]
+                utterances_list = [strip_str(ut.text) for ut in utterances_info]
 
-        if len(speaker_info) > 0:
-            speaker_list = [name_filter(sp.text.strip()) for sp in speaker_info]
-            utterances_list = [strip_str(ut.text) for ut in utterances_info]
-
-            for sp, ut in zip(speaker_list, utterances_list):
-                if not ut == '':
-                    dialog_dict['content'].append(
-                        {'speaker': sp,
-                         'utterance': ut}
-                    )
-        else:
-            warning_info = '%s dialog not found!' % dialog_id
+                for sp, ut in zip(speaker_list, utterances_list):
+                    if not ut == '':
+                        dialog_dict['content'].append(
+                            {'speaker': sp,
+                             'utterance': ut}
+                        )
+                break
+        if len(speaker_info) == 0:
+            warning_info = '%s %s dialog not found!' % (dialog_id, dialog_url)
             exception_report.append(warning_info)
             print(warning_info)
+    else:
+        warning_info = '%s %s URL not found!' % (dialog_id, dialog_url)
+        exception_report.append(warning_info)
+        print(warning_info)
 
     return dialog_dict, html_dict, exception_report
 
@@ -141,6 +156,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--chunk_size", default=500, type=int)
+    parser.add_argument("--sleep_time", default=5, type=int)
 
     args = parser.parse_args()
 
@@ -168,7 +184,8 @@ def main():
         print('Processing %05d / %s' % (current_index, all_index))
 
         dialog = all_dialogs[i]
-        dialog_dict, html_dict, exception_report = crawl_dialog(dialog)
+
+        dialog_dict, html_dict, exception_report = crawl_dialog(dialog, sleep_time=args.sleep_time)
 
         if len(exception_report) > 0:
             save_warning_file(warning_file, exception_report)
