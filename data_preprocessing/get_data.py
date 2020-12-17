@@ -95,27 +95,6 @@ def crawl_dialog(dialog, sleep_time):
         html_dict['html'] = response_text
         html_format = html.fromstring(response_text)
 
-        # get the summary
-        summary_info = []
-        for sum_rule in SUMMARY_RULE:
-            summary_info = html_format.xpath(sum_rule)
-            if len(summary_info) > 0:
-                description = summary_info[0].text
-                if description.startswith('问题描述：'):
-                    description = description[5:]
-
-                dialog_dict['summary']['description'] = strip_str(description)
-
-                suggestion = summary_info[1].text
-                if suggestion.startswith('分析及建议：'):
-                    suggestion = suggestion[6:]
-                dialog_dict['summary']['suggestion'] = strip_str(suggestion)
-                break
-        if len(summary_info) == 0:
-            warning_info = '%s %s summary not found!' % (dialog_id, dialog_url)
-            exception_report.append(warning_info)
-            print(warning_info)
-
         # get dialog
         speaker_info = []
         for context_rule in CONTENT_RULE:
@@ -138,6 +117,43 @@ def crawl_dialog(dialog, sleep_time):
             warning_info = '%s %s dialog not found!' % (dialog_id, dialog_url)
             exception_report.append(warning_info)
             print(warning_info)
+
+        # get the summary
+        summary_info = []
+        for sum_rule in SUMMARY_RULE:
+            summary_info = html_format.xpath(sum_rule)
+            if len(summary_info) > 0:
+                description = summary_info[0].text
+                if description.startswith('问题描述：'):
+                    description = description[5:]
+
+                dialog_dict['summary']['description'] = strip_str(description)
+
+                suggestion = summary_info[1].text
+                if suggestion.startswith('分析及建议：'):
+                    suggestion = suggestion[6:]
+                dialog_dict['summary']['suggestion'] = strip_str(suggestion)
+                break
+        if len(summary_info) == 0:
+            if len(speaker_info) > 0:
+                description = dialog_dict['content'][0]['utterance']
+                dialog_dict['summary']['description'] = description
+                new_dialog_content = []
+                for utt in dialog_dict['content']:
+                    speaker = utt['speaker']
+                    if speaker == '医生' and utt['utterance'].startswith('针对本次问诊，医生更新了总结建议'):
+                        dialog_dict['summary']['suggestion'] += utt['utterance']
+                    else:
+                        new_dialog_content.append(
+                            {'speaker': speaker,
+                            'utterance': utt['utterance']}
+                        )
+                dialog_dict['content'] = new_dialog_content
+
+            if dialog_dict['summary']['suggestion'] == '':
+                warning_info = '%s %s summary not found!' % (dialog_id, dialog_url)
+                exception_report.append(warning_info)
+                print(warning_info)
     else:
         warning_info = '%s %s URL not found!' % (dialog_id, dialog_url)
         exception_report.append(warning_info)
