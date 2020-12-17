@@ -135,7 +135,7 @@ def crawl_dialog(dialog, sleep_time):
                 dialog_dict['summary']['suggestion'] = strip_str(suggestion)
                 break
         if len(summary_info) == 0:
-            if len(speaker_info) > 0:
+            if len(dialog_dict['content'][0]) > 0:
                 description = dialog_dict['content'][0]['utterance']
                 dialog_dict['summary']['description'] = description
                 new_dialog_content = []
