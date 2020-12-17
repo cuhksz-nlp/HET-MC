@@ -9,13 +9,13 @@ import random
 
 SUMMARY_RULE = [
     '//main[@class="content"]/section/div[@class="qa-arrangement"]/div[@class="qa-arrangement-body"]/div[@class="qa-title"]',
-
+    '//main/div[@class="qa-arrangement-body"]/p'
 ]
 
 
 CONTENT_RULE = [
     '//main[@class="content"]/section/section[@class="problem-detail-wrap"]/section[@class="problem-detail-inner"]/div[@class="block-line"]/div[@class="block-right"]',
-
+    '//main/dev[@class="problem-detail-wrap"]/div[@class="block-line"]'
 ]
 
 FULL_URL_FILE = 'data/urls/url_list.txt'
@@ -46,12 +46,17 @@ def get_full_dialog_list(full_list_path):
 
 def get_existing_index(data_dir):
     all_files = os.listdir(data_dir)
+    existing_ids = set()
     for file in sorted(all_files, reverse=True):
         if not file.endswith('.json'):
             continue
-        index_range = file[file.find('.')+1: file.rfind('.')]
-        return int(index_range.split('_')[1])
-    return 0
+        with open(os.path.join(data_dir, file), 'r', encoding='utf8') as f:
+            lines = f.readlines()
+        for line in lines:
+            line = line.strip()
+            dialog = json.loads(line)
+            existing_ids.add(dialog['id'])
+    return existing_ids
 
 
 def strip_str(string):
@@ -157,31 +162,42 @@ def main():
 
     parser.add_argument("--chunk_size", default=500, type=int)
     parser.add_argument("--sleep_time", default=5, type=int)
+    parser.add_argument("--test_url", default=None, type=str)
 
     args = parser.parse_args()
 
     full_dialogs = get_full_dialog_list(FULL_URL_FILE)
-    existing_index = get_existing_index(JSON_DATA_DIR)
+    existing_ids = get_existing_index(JSON_DATA_DIR)
+    existing_dialog_num = len(existing_ids)
 
-    all_dialogs = full_dialogs[existing_index:]
+    all_dialogs = []
 
-    print('%d dialogs exists in %s' % (existing_index, JSON_DATA_DIR))
+    for dialog in full_dialogs:
+        if not dialog['id'] in existing_ids:
+            all_dialogs.append(dialog)
+
+    print('%d dialogs exists in %s' % (existing_dialog_num, JSON_DATA_DIR))
     print('%d dialogs to be crawl' % (len(all_dialogs)))
 
     chunk_dialogs = []
     chunk_htmls = []
 
-    all_index = all_dialogs[-1]['id']
-
     now_time = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
     warning_file = 'warning-%s' % now_time
     warning_file = os.path.join(WARNINGS_DIR, warning_file)
 
+    # test code
+    if args.test_url is not None:
+        test_dialog = {'id': 00000, 'url': args.test_url}
+        dialog_dict, html_dict, exception_report = crawl_dialog(test_dialog, sleep_time=args.sleep_time)
+        exit(0)
+    #
+
     for i in range(len(all_dialogs)):
 
-        current_index = existing_index + i + 1
+        current_index = existing_dialog_num + i + 1
 
-        print('Processing %05d / %s' % (current_index, all_index))
+        print('Processing %05d / %d' % (current_index, len(full_dialogs)))
 
         dialog = all_dialogs[i]
 
