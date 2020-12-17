@@ -60,6 +60,8 @@ def get_existing_index(data_dir):
 
 
 def strip_str(string):
+    if string is None:
+        return ''
     return ','.join(string.strip().split())
 
 
