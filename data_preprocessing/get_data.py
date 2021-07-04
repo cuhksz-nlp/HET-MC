@@ -6,6 +6,7 @@ import argparse
 import datetime
 import time
 import random
+from selenium import webdriver
 
 SUMMARY_RULE = [
     '//main[@class="content"]/section/div[@class="qa-arrangement"]/div[@class="qa-arrangement-body"]/div[@class="qa-title"]',
@@ -72,7 +73,7 @@ def name_filter(string):
         return '患者'
 
 
-def crawl_dialog(dialog, sleep_time):
+def crawl_dialog(dialog, sleep_time, driver):
     dialog_id = dialog['id']
     dialog_url = dialog['url']
     exception_report = []
@@ -80,11 +81,12 @@ def crawl_dialog(dialog, sleep_time):
     dialog_dict = {'id': dialog_id, 'url': dialog_url, 'content': [], 'summary': {'description': '', 'suggestion': ''}}
     html_dict = {'id': dialog_id, 'url': dialog_url, 'html': ''}
 
+    time.sleep(1)
     response = requests.get(dialog_url)
 
     step_threshold = 5
     try_times = 0
-    while response.status_code == 503 and try_times < 20:
+    while (response.status_code == 503 or response.status_code == 429) and try_times < 20:
         time.sleep(max(sleep_time + 4 * (random.random() - 0.5), 2))
         response = requests.get(dialog_url)
         try_times += 1
@@ -119,10 +121,9 @@ def crawl_dialog(dialog, sleep_time):
             print(warning_info)
 
         # get the summary
-        summary_info = []
         for sum_rule in SUMMARY_RULE:
             summary_info = html_format.xpath(sum_rule)
-            if len(summary_info) > 0:
+            if len(summary_info) > 0 and summary_info[0].text is not None:
                 description = summary_info[0].text
                 if description.startswith('问题描述：'):
                     description = description[5:]
@@ -134,7 +135,27 @@ def crawl_dialog(dialog, sleep_time):
                     suggestion = suggestion[6:]
                 dialog_dict['summary']['suggestion'] = strip_str(suggestion)
                 break
-        if len(summary_info) == 0:
+
+        if dialog_dict['summary']['suggestion'] == '':
+            driver.implicitly_wait(sleep_time)
+            driver.get(dialog_url)
+            try:
+                enter = driver.find_element_by_class_name('qa-arrangement-btn')
+                driver.execute_script("arguments[0].scrollIntoView();", enter)
+                if driver.find_element_by_class_name('qa-arrangement-body').is_displayed():
+                    pass
+                else:
+                    enter.click()
+                # text_result = driver.find_element_by_class_name('qa-arrangement-body').text
+                text_result = driver.find_elements_by_class_name('qa-des')
+
+                if len(text_result) == 2:
+                    dialog_dict['summary']['description'] = text_result[0].text
+                    dialog_dict['summary']['suggestion'] = text_result[1].text
+            except Exception:
+                pass
+
+        if dialog_dict['summary']['suggestion'] == '':
             if len(dialog_dict['content']) > 0:
                 description = dialog_dict['content'][0]['utterance']
                 dialog_dict['summary']['description'] = description
@@ -155,7 +176,7 @@ def crawl_dialog(dialog, sleep_time):
                 exception_report.append(warning_info)
                 print(warning_info)
     else:
-        warning_info = '%s %s URL not found!' % (dialog_id, dialog_url)
+        warning_info = '%s %d %s URL not found!' % (dialog_id, response.status_code, dialog_url)
         exception_report.append(warning_info)
         print(warning_info)
 
@@ -179,8 +200,9 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--chunk_size", default=500, type=int)
-    parser.add_argument("--sleep_time", default=5, type=int)
+    parser.add_argument("--sleep_time", default=15, type=int)
     parser.add_argument("--test_url", default=None, type=str)
+    parser.add_argument("--chrome_driver", default='./chromedriver', type=str)
 
     args = parser.parse_args()
 
@@ -204,12 +226,19 @@ def main():
     warning_file = 'warning-%s' % now_time
     warning_file = os.path.join(WARNINGS_DIR, warning_file)
 
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--window-size=1920,1080')
+    driver = webdriver.Chrome(executable_path=args.chrome_driver, options=chrome_options)
+
     # test code
     if args.test_url is not None:
         test_dialog = {'id': 00000, 'url': args.test_url}
-        dialog_dict, html_dict, exception_report = crawl_dialog(test_dialog, sleep_time=args.sleep_time)
+        dialog_dict, html_dict, exception_report = crawl_dialog(test_dialog, sleep_time=args.sleep_time, driver=driver)
         exit(0)
-    #
 
     for i in range(len(all_dialogs)):
 
@@ -219,7 +248,7 @@ def main():
 
         dialog = all_dialogs[i]
 
-        dialog_dict, html_dict, exception_report = crawl_dialog(dialog, sleep_time=args.sleep_time)
+        dialog_dict, html_dict, exception_report = crawl_dialog(dialog, sleep_time=args.sleep_time, driver=driver)
 
         if len(exception_report) > 0:
             save_warning_file(warning_file, exception_report)
