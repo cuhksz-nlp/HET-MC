@@ -11,11 +11,7 @@ Following the following steps to install Google Chrome Browser and Google Chrome
 wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
 sudo apt install ./google-chrome-stable_current_amd64.deb
 ```
-* Install `xvfb`
-```
-sudo apt-get install xvfb
-```
-* Download the [Google Chrome Driver]((https://sites.google.com/a/chromium.org/chromedriver/downloads)) and put it under the current directory. You can use `google-chrome --version` to find the version of Google Chrome Browser.
+* Download the [Google Chrome Driver]((https://sites.google.com/a/chromium.org/chromedriver/downloads)) and put it under the current directory. You can use `google-chrome --version` to find the version of Google Chrome Browser. You also need to add the execute permission to the driver by `chmod +x ./chromedriver`.
 
 ## Obtain the data
 
