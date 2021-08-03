@@ -172,7 +172,7 @@ def train(args):
                              lmask, party_mask, party_ids, department_ids, disease_ids,
                              ngram_ids, ngram_positions)
 
-            if np.isnan(loss.to('cpu').detach().numpy()):
+            if np.isnan(loss.to('cpu').detach().numpy().any()):
                 nan_loss += 1
                 logger.info('loss is nan at epoch %d. Times %d' % (epoch, nan_loss))
 
