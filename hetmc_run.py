@@ -346,7 +346,7 @@ def train(args):
 
         results_history[epoch] = epoch_history
         # keep
-        for target in ['SUM1', 'SUM2.0']:
+        for target in ['SUM1', 'SUM2']:
             if best_result_update[target]:
                 save_model_name = 'model'
                 save_model_dir = os.path.join(output_model_dir, save_model_name)
