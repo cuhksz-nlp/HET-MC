@@ -49,9 +49,8 @@ def train(args):
         ptvsd.enable_attach(address=(args.server_ip, args.server_port), redirect_output=True)
         ptvsd.wait_for_attach()
 
-    if args.local_rank == -1 or args.no_cuda:
-        device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
-        n_gpu = torch.cuda.device_count()
+    device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
+    n_gpu = torch.cuda.device_count()
 
     if args.gradient_accumulation_steps < 1:
         raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
@@ -93,8 +92,6 @@ def train(args):
 
     num_train_optimization_steps = int(
         len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps) * args.num_train_epochs
-    if args.local_rank != -1:
-        num_train_optimization_steps = num_train_optimization_steps // torch.distributed.get_world_size()
 
     if args.fp16:
         het_model.half()
@@ -212,160 +209,159 @@ def train(args):
 
         best_result_update = {'SUM1': False, 'SUM2': False}
 
-        if args.local_rank == -1 or torch.distributed.get_rank() == 0:
-            het_model.eval()
-            y_true = []
-            y_pred = []
-            for start_index in range(0, len(eval_examples), args.eval_batch_size):
-                eval_batch_examples = eval_examples[start_index: min(start_index + args.eval_batch_size,
-                                                                     len(eval_examples))]
-                eval_features = convert_examples_to_features(eval_batch_examples)
+        het_model.eval()
+        y_true = []
+        y_pred = []
+        for start_index in range(0, len(eval_examples), args.eval_batch_size):
+            eval_batch_examples = eval_examples[start_index: min(start_index + args.eval_batch_size,
+                                                                 len(eval_examples))]
+            eval_features = convert_examples_to_features(eval_batch_examples)
 
-                input_ids, input_mask, l_mask, label_ids, ngram_ids, ngram_positions, segment_ids, valid_ids, \
-                lmask, party_mask, party_ids, department_ids, disease_ids = feature2input(device, eval_features)
+            input_ids, input_mask, l_mask, label_ids, ngram_ids, ngram_positions, segment_ids, valid_ids, \
+            lmask, party_mask, party_ids, department_ids, disease_ids = feature2input(device, eval_features)
 
-                with torch.no_grad():
-                    tag_seq = het_model(input_ids, segment_ids, input_mask, labels=None,
-                                        valid_ids=valid_ids, attention_mask_label=l_mask,
-                                        label_mask=lmask, party_mask=party_mask,
-                                        party_ids=party_ids, department_ids=department_ids,
-                                        disease_ids=disease_ids,
-                                        input_ngram_ids=ngram_ids, ngram_position_matrix=ngram_positions)
+            with torch.no_grad():
+                tag_seq = het_model(input_ids, segment_ids, input_mask, labels=None,
+                                    valid_ids=valid_ids, attention_mask_label=l_mask,
+                                    label_mask=lmask, party_mask=party_mask,
+                                    party_ids=party_ids, department_ids=department_ids,
+                                    disease_ids=disease_ids,
+                                    input_ngram_ids=ngram_ids, ngram_position_matrix=ngram_positions)
 
-                logits = tag_seq.to('cpu').numpy()
-                label_ids = label_ids.to('cpu').numpy()
+            logits = tag_seq.to('cpu').numpy()
+            label_ids = label_ids.to('cpu').numpy()
 
-                for i, example in enumerate(eval_batch_examples):
-                    temp_1 = []
-                    temp_2 = []
-                    if len(example.label) >= args.max_dialog_length:
-                        gold_label = example.label[:args.max_dialog_length]
-                    else:
-                        gold_label = example.label
-                    for j, m in enumerate(gold_label):
-                        temp_1.append(m)
-                        pred = logits[i][j]
-                        if pred == 0:
-                            temp_2.append('o')
-                        else:
-                            temp_2.append(id2label[pred])
-                    y_true.append(temp_1)
-                    y_pred.append(temp_2)
-
-            assert len(y_true) == len(y_pred)
-            # the evaluation method of cws
-            summary_list = [example.summary for example in eval_examples]
-            sum1_list = []
-            sum2_list = []
-            assert len(y_pred) == len(eval_examples)
-            for y_pred_item, example in zip(y_pred, eval_examples):
-                utterance_list = example.text_a
-                sum1 = []
-                sum2 = []
-                for i, y_pred_label in enumerate(y_pred_item):
-                    if y_pred_label == '1':
-                        sum1.append(utterance_list[i])
-                    elif y_pred_label == '2':
-                        sum2.append(utterance_list[i])
-                sum1_list.append('，'.join(sum1))
-                sum2_list.append('，'.join(sum2))
-
-            epoch_history = {'prf': None, 'SUM1': None, 'SUM2': None, 'SUM2A': None, 'SUM2B': None}
-            y_true_all = []
-            y_pred_all = []
-            for y_true_item in y_true:
-                y_true_all += y_true_item
-            for y_pred_item in y_pred:
-                y_pred_all += y_pred_item
-            # report = classification_report(y_true_all, y_pred_all, digits=4)
-            report2 = precision_recall_fscore_support(y_true_all, y_pred_all, labels=['0', '1', '2', 'o'])
-            # logger.info(str(report))
-            logger.info('dev: epoch\t%d' % epoch)
-            str_report2 = '\n'
-
-            sum1_f = None
-            sum2_f = None
-
-            for i, ls in enumerate(['0', '1', '2', 'o']):
-                p = report2[0][i]
-                r = report2[1][i]
-                f = report2[2][i]
-                if ls == '1':
-                    sum1_f = f
-                if ls == '2':
-                    sum2_f = f
-                str_report2 += '%s\tp: %f\tr: %f\tf: %f\n' % (ls, p, r, f)
-            logger.info(str_report2)
-            epoch_history['prf'] = str_report2
-
-            sum1_rl = None
-            sum2_rl = None
-
-            for target in ['SUM1', 'SUM2']:
-                if target == 'SUM1':
-                    sum_list = sum1_list
+            for i, example in enumerate(eval_batch_examples):
+                temp_1 = []
+                temp_2 = []
+                if len(example.label) >= args.max_dialog_length:
+                    gold_label = example.label[:args.max_dialog_length]
                 else:
-                    sum_list = sum2_list
-                selected_gold, selceted_pred = evaluator.get_evaluate_list(summary_list, sum_list, target)
-                overall_rouge, rouge_list, main_metric_score = evaluator.rouge_score(selceted_pred, selected_gold)
-                logger.info('eval: epoch\t%d\t target\t%s' % (epoch, target))
-                str_report = '\n'
-
-                for key, value in overall_rouge.items():
-                    str_report += '%s\t%f\n' % (key, value['f'])
-                    if key == 'rougeL' and target == 'SUM1':
-                        sum1_rl = value['f']
-                    if key == 'rougeL' and target == 'SUM2':
-                        sum2_rl = value['f']
-                logger.info(str_report)
-
-                epoch_history[target] = str_report
-
-                if num_of_no_improvement[target] < patient:
-                    if best_eval[target] < main_metric_score:
-                        best_eval[target] = main_metric_score
-                        num_of_no_improvement[target] = 0
-                        best_epoch[target] = epoch
-                        best_rouge[target] = str_report
-                        best_tag_report[target] = str_report2
-                        # best_report = report
-                        best_result_update[target] = True
+                    gold_label = example.label
+                for j, m in enumerate(gold_label):
+                    temp_1.append(m)
+                    pred = logits[i][j]
+                    if pred == 0:
+                        temp_2.append('o')
                     else:
-                        num_of_no_improvement[target] += 1
+                        temp_2.append(id2label[pred])
+                y_true.append(temp_1)
+                y_pred.append(temp_2)
 
-            # -------- SUM 2A ----------
-            sum_list = sum2_list
-            for flag in ['SUM2A', 'SUM2B']:
-                selected_gold, selceted_pred = evaluator.get_evaluate_list(summary_list, sum_list, flag)
-                overall_rouge, rouge_list, main_metric_score = evaluator.rouge_score(selceted_pred, selected_gold)
-                logger.info('eval: epoch\t%d\t target\t%s' % (epoch, flag))
-                str_report = ''
+        assert len(y_true) == len(y_pred)
+        # the evaluation method of cws
+        summary_list = [example.summary for example in eval_examples]
+        sum1_list = []
+        sum2_list = []
+        assert len(y_pred) == len(eval_examples)
+        for y_pred_item, example in zip(y_pred, eval_examples):
+            utterance_list = example.text_a
+            sum1 = []
+            sum2 = []
+            for i, y_pred_label in enumerate(y_pred_item):
+                if y_pred_label == '1':
+                    sum1.append(utterance_list[i])
+                elif y_pred_label == '2':
+                    sum2.append(utterance_list[i])
+            sum1_list.append('，'.join(sum1))
+            sum2_list.append('，'.join(sum2))
 
-                for key, value in overall_rouge.items():
-                    str_report += '%s\t%f\n' % (key, value['f'])
-                logger.info(str_report)
+        epoch_history = {'prf': None, 'SUM1': None, 'SUM2': None, 'SUM2A': None, 'SUM2B': None}
+        y_true_all = []
+        y_pred_all = []
+        for y_true_item in y_true:
+            y_true_all += y_true_item
+        for y_pred_item in y_pred:
+            y_pred_all += y_pred_item
+        # report = classification_report(y_true_all, y_pred_all, digits=4)
+        report2 = precision_recall_fscore_support(y_true_all, y_pred_all, labels=['0', '1', '2', 'o'])
+        # logger.info(str(report))
+        logger.info('dev: epoch\t%d' % epoch)
+        str_report2 = '\n'
 
-                epoch_history[flag] = str_report
-            # -------- SUM 2A ----------
+        sum1_f = None
+        sum2_f = None
 
-            results_history[epoch] = epoch_history
-            # keep
-            for target in ['SUM1', 'SUM2.0']:
-                if best_result_update[target]:
-                    save_model_name = 'model'
-                    save_model_dir = os.path.join(output_model_dir, save_model_name)
+        for i, ls in enumerate(['0', '1', '2', 'o']):
+            p = report2[0][i]
+            r = report2[1][i]
+            f = report2[2][i]
+            if ls == '1':
+                sum1_f = f
+            if ls == '2':
+                sum2_f = f
+            str_report2 += '%s\tp: %f\tr: %f\tf: %f\n' % (ls, p, r, f)
+        logger.info(str_report2)
+        epoch_history['prf'] = str_report2
 
-                    if not os.path.exists(save_model_dir):
-                        os.makedirs(save_model_dir)
+        sum1_rl = None
+        sum2_rl = None
 
-                    model_to_save = het_model.module if hasattr(het_model, 'module') else het_model
+        for target in ['SUM1', 'SUM2']:
+            if target == 'SUM1':
+                sum_list = sum1_list
+            else:
+                sum_list = sum2_list
+            selected_gold, selceted_pred = evaluator.get_evaluate_list(summary_list, sum_list, target)
+            overall_rouge, rouge_list, main_metric_score = evaluator.rouge_score(selceted_pred, selected_gold)
+            logger.info('eval: epoch\t%d\t target\t%s' % (epoch, target))
+            str_report = '\n'
 
-                    model_to_save.save_model(save_model_dir, args.bert_model)
+            for key, value in overall_rouge.items():
+                str_report += '%s\t%f\n' % (key, value['f'])
+                if key == 'rougeL' and target == 'SUM1':
+                    sum1_rl = value['f']
+                if key == 'rougeL' and target == 'SUM2':
+                    sum2_rl = value['f']
+            logger.info(str_report)
 
-                    with open(os.path.join(save_model_dir, 'test.sum.txt'), "w") as f:
-                        for sum1, sum2 in zip(sum1_list, sum2_list):
-                            f.write('SUM1\t%s\n' % sum1)
-                            f.write('SUM2\t%s\n\n' % sum2)
+            epoch_history[target] = str_report
+
+            if num_of_no_improvement[target] < patient:
+                if best_eval[target] < main_metric_score:
+                    best_eval[target] = main_metric_score
+                    num_of_no_improvement[target] = 0
+                    best_epoch[target] = epoch
+                    best_rouge[target] = str_report
+                    best_tag_report[target] = str_report2
+                    # best_report = report
+                    best_result_update[target] = True
+                else:
+                    num_of_no_improvement[target] += 1
+
+        # -------- SUM 2A ----------
+        sum_list = sum2_list
+        for flag in ['SUM2A', 'SUM2B']:
+            selected_gold, selceted_pred = evaluator.get_evaluate_list(summary_list, sum_list, flag)
+            overall_rouge, rouge_list, main_metric_score = evaluator.rouge_score(selceted_pred, selected_gold)
+            logger.info('eval: epoch\t%d\t target\t%s' % (epoch, flag))
+            str_report = ''
+
+            for key, value in overall_rouge.items():
+                str_report += '%s\t%f\n' % (key, value['f'])
+            logger.info(str_report)
+
+            epoch_history[flag] = str_report
+        # -------- SUM 2A ----------
+
+        results_history[epoch] = epoch_history
+        # keep
+        for target in ['SUM1', 'SUM2.0']:
+            if best_result_update[target]:
+                save_model_name = 'model'
+                save_model_dir = os.path.join(output_model_dir, save_model_name)
+
+                if not os.path.exists(save_model_dir):
+                    os.makedirs(save_model_dir)
+
+                model_to_save = het_model.module if hasattr(het_model, 'module') else het_model
+
+                model_to_save.save_model(save_model_dir, args.bert_model)
+
+                with open(os.path.join(save_model_dir, 'test.sum.txt'), "w") as f:
+                    for sum1, sum2 in zip(sum1_list, sum2_list):
+                        f.write('SUM1\t%s\n' % sum1)
+                        f.write('SUM2\t%s\n\n' % sum2)
 
         if num_of_no_improvement['SUM1'] >= patient and num_of_no_improvement['SUM2'] >= patient:
             logger.info('\nEarly stop triggered at epoch %d\n' % epoch)
@@ -380,18 +376,8 @@ def train(args):
 
 
 def test(args):
-
-    if args.local_rank == -1 or args.no_cuda:
-        device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
-        n_gpu = torch.cuda.device_count()
-    else:
-        torch.cuda.set_device(args.local_rank)
-        device = torch.device("cuda", args.local_rank)
-        n_gpu = 1
-        # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
-        torch.distributed.init_process_group(backend='nccl')
-    print("device: {} n_gpu: {}, distributed training: {}, 16-bits training: {}".format(
-        device, n_gpu, bool(args.local_rank != -1), args.fp16))
+    device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
+    n_gpu = torch.cuda.device_count()
 
     het_model = HET.load_model(args.eval_model)
 
@@ -406,15 +392,7 @@ def test(args):
     if args.fp16:
         het_model.half()
     het_model.to(device)
-    if args.local_rank != -1:
-        try:
-            from apex.parallel import DistributedDataParallel as DDP
-        except ImportError:
-            raise ImportError(
-                "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training.")
-
-        het_model = DDP(het_model)
-    elif n_gpu > 1:
+    if n_gpu > 1:
         het_model = torch.nn.DataParallel(het_model)
 
     evaluator = Evaluation()
@@ -616,10 +594,6 @@ def main():
     parser.add_argument("--no_cuda",
                         action='store_true',
                         help="Whether not to use CUDA when available")
-    parser.add_argument("--local_rank",
-                        type=int,
-                        default=-1,
-                        help="local_rank for distributed training on gpus")
     parser.add_argument('--seed',
                         type=int,
                         default=42,
