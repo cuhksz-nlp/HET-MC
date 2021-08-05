@@ -76,7 +76,7 @@ class Memory(nn.Module):
         # word_embedding_a: (batch_size * dialog_length, word_length, hidden_size)
         # word_embedding_a = self.word_embedding_a(input_ids)
         word_embedding_c = self.word_embedding_c(input_ids)
-
+        self.memory_encoder.flatten_parameters()
         word_embedding_c, _ = self.memory_encoder(word_embedding_c)
         word_embedding_c = word_embedding_c[:, -1, :]
 
@@ -259,6 +259,7 @@ class HET(nn.Module):
             sequence_output = torch.cat((sequence_output, party_embeddings), dim=2)
         #
         if self.utterance_encoder is not None:
+            self.utterance_encoder.flatten_parameters()
             utterance_output, _ = self.utterance_encoder(sequence_output)
         else:
             utterance_output = sequence_output
