@@ -2,7 +2,14 @@
 
 This is the implementation of [Summarizing Medical Conversations via Identifying Important Utterances](https://www.aclweb.org/anthology/2020.coling-main.63/) at COLING 2020.
 
-You can e-mail Yuanhe Tian at `yhtian@uw.edu` or Guimin Chen at `cuhksz.nlp@gmail.com`, if you have any questions.
+You can e-mail Yuanhe Tian at `yhtian@uw.edu`, if you have any questions.
+
+
+**Visit our [homepage](https://github.com/synlp/.github) to find more our recent research and softwares for NLP (e.g., pre-trained LM, POS tagging, NER, sentiment analysis, relation extraction, datasets, etc.).**
+
+## Upgrades of HET-MC
+
+We are improving our HET-MC. For updates, please visit [HERE](https://github.com/synlp/HET-MC).
 
 ## Citation
 
